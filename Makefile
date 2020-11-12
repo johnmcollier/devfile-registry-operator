@@ -12,7 +12,8 @@ endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= quay.io/devfile/registry-operator:next
+
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
@@ -30,7 +31,12 @@ ENVTEST_ASSETS_DIR = $(shell pwd)/testbin
 test: generate fmt vet manifests
 	mkdir -p $(ENVTEST_ASSETS_DIR)
 	test -f $(ENVTEST_ASSETS_DIR)/setup-envtest.sh || curl -sSLo $(ENVTEST_ASSETS_DIR)/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.6.3/hack/setup-envtest.sh
-	source $(ENVTEST_ASSETS_DIR)/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); go test ./... -coverprofile cover.out
+	source $(ENVTEST_ASSETS_DIR)/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); go test ./pkg/... -coverprofile cover.out
+
+### test-integration: runs integration tests on the cluster set in context.
+test-integration: generate fmt vet manifests
+	CGO_ENABLED=0 go test -v -c -o bin/devfileregistry-operator-integration ./tests/integration/cmd/devfileregistry_test.go
+	./bin/devfileregistry-operator-integration
 
 # Build manager binary
 manager: generate fmt vet
@@ -44,9 +50,10 @@ run: generate fmt vet manifests
 install: manifests kustomize
 	$(KUSTOMIZE) build config/crd | kubectl apply -f -
 
-# Uninstall CRDs from a cluster
+# Uninstall operator and CRDs from a cluster
 uninstall: manifests kustomize
-	$(KUSTOMIZE) build config/crd | kubectl delete -f -
+	$(KUSTOMIZE) build config/default | kubectl delete -f -
+	#$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests kustomize
@@ -57,9 +64,24 @@ deploy: manifests kustomize
 manifests: controller-gen
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
-# Run go fmt against code
+### fmt: Run go fmt against code
 fmt:
-	go fmt ./...
+ifneq ($(shell command -v goimports 2> /dev/null),)
+	find . -name '*.go' -exec goimports -w {} \;
+else
+	@echo "WARN: goimports is not installed -- formatting using go fmt instead."
+	@echo "      Please install goimports to ensure file imports are consistent."
+	go fmt -x ./...
+endif
+
+### fmt_license: ensure license header is set on all files
+fmt_license:
+ifneq ($(shell command -v addlicense 2> /dev/null),)
+	@echo 'addlicense -v -f license_header.txt **/*.go'
+	@addlicense -v -f license_header.txt $$(find . -name '*.go')
+else
+	$(error addlicense must be installed for this rule: go get -u github.com/google/addlicense)
+endif
 
 # Run go vet against code
 vet:
