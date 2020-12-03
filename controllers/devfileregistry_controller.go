@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,8 +37,9 @@ import (
 // DevfileRegistryReconciler reconciles a DevfileRegistry object
 type DevfileRegistryReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log      logr.Logger
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=registry.devfile.io,resources=devfileregistries,verbs=get;list;watch;create;update;patch;delete
@@ -149,6 +151,7 @@ func (r *DevfileRegistryReconciler) Reconcile(req ctrl.Request) (ctrl.Result, er
 			log.Error(err, "Failed to update DevfileRegistry status")
 			return ctrl.Result{Requeue: true}, err
 		}
+		r.Recorder.Event(devfileRegistry, corev1.EventTypeWarning, "Deployed", "Successfully deployed devfile registry")
 	}
 
 	return ctrl.Result{}, nil
